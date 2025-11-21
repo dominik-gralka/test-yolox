@@ -66,6 +66,15 @@ class YOLOXClient:
                 files=files,
                 data=data
             )
+
+            # Check for errors and show detail
+            if response.status_code != 200:
+                try:
+                    error_detail = response.json()
+                    print(f"Error details: {error_detail}")
+                except:
+                    print(f"Error response: {response.text}")
+
             response.raise_for_status()
 
         return response.json()
