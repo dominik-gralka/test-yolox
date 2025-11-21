@@ -179,6 +179,67 @@ console.log(`Found ${result.num_detections} objects`);
 }
 ```
 
+### Beispiel: Video Object Detection
+
+Die API unterstützt auch Video-Verarbeitung! Videos werden Frame-für-Frame verarbeitet.
+
+**cURL:**
+
+```bash
+# Einfache Video-Detection (alle Frames)
+curl -X POST "http://localhost:8000/api/v1/detect/video" \
+  -F "file=@/path/to/video.mp4" \
+  -F "confidence_threshold=0.5"
+
+# Optimiert für längere Videos (jeden 5. Frame)
+curl -X POST "http://localhost:8000/api/v1/detect/video" \
+  -F "file=@/path/to/video.mp4" \
+  -F "sampling_rate=5" \
+  -F "max_frames=300"
+```
+
+**Python:**
+
+```python
+import requests
+
+# Kurzes Video: Alle Frames verarbeiten
+files = {"file": open("short_video.mp4", "rb")}
+data = {
+    "confidence_threshold": 0.5,
+    "sampling_rate": 1  # Alle Frames
+}
+response = requests.post("http://localhost:8000/api/v1/detect/video", files=files, data=data)
+result = response.json()
+
+# Langes Video: Jeden 10. Frame verarbeiten
+files = {"file": open("long_video.mp4", "rb")}
+data = {
+    "confidence_threshold": 0.5,
+    "sampling_rate": 10,  # Jeden 10. Frame
+    "max_frames": 300,     # Max 300 Frames
+    "return_detections_only": True  # Nur Frames mit Detections
+}
+response = requests.post("http://localhost:8000/api/v1/detect/video", files=files, data=data)
+result = response.json()
+
+print(f"Processed {result['total_frames']} frames")
+print(f"Found detections in {result['frames_with_detections']} frames")
+print(f"Processing speed: {result['avg_fps']:.2f} fps")
+```
+
+**Performance-Tipps für Videos:**
+- **Kurze Videos (< 30s)**: `sampling_rate=1` (alle Frames)
+- **Mittlere Videos (30s-2min)**: `sampling_rate=3-5`
+- **Lange Videos (> 2min)**: `sampling_rate=10` oder `max_frames=300`
+- Nutzen Sie `return_detections_only=true` für kleinere Responses
+
+**Vollständiges Beispiel:**
+```bash
+# Siehe examples/video_client_example.py für einen kompletten Client
+python examples/video_client_example.py
+```
+
 ## 🔍 API Endpoints
 
 | Endpoint | Methode | Beschreibung |
@@ -186,6 +247,8 @@ console.log(`Found ${result.num_detections} objects`);
 | `/` | GET | Service-Informationen |
 | `/docs` | GET | Swagger UI Dokumentation |
 | `/api/v1/detect` | POST | Object Detection auf einem Bild |
+| `/api/v1/detect/video` | POST | Object Detection auf einem Video (Frame-für-Frame) |
+| `/api/v1/detect/video/formats` | GET | Unterstützte Video-Formate anzeigen |
 | `/api/v1/health` | GET | Health Check für Monitoring |
 | `/api/v1/ready` | GET | Readiness Check für K8s |
 | `/api/v1/metrics` | GET | Prometheus Metriken |

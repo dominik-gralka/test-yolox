@@ -7,7 +7,7 @@ import sys
 
 from app.core.config import get_settings
 from app.core.model_manager import get_model_manager
-from app.api.routes import health, detection, metrics
+from app.api.routes import health, detection, metrics, video
 from app import __version__
 
 
@@ -75,6 +75,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(detection.router, prefix="/api/v1")
+app.include_router(video.router, prefix="/api/v1")
 app.include_router(metrics.router, prefix="/api/v1")
 
 
