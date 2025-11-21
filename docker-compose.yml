@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  yolox-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: yolox-api:latest
+    container_name: yolox-api
+    ports:
+      - "8000:8000"
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DEVICE=cpu  # Change to 'cuda' if GPU is available
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./models:/app/models:ro  # Mount models directory (read-only)
+      - ./logs:/app/logs  # Mount logs directory
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Nginx reverse proxy for load balancing
+  nginx:
+    image: nginx:alpine
+    container_name: yolox-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - yolox-api
+    restart: unless-stopped
+    profiles:
+      - with-nginx

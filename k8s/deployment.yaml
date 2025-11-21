@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yolox-api
+  labels:
+    app: yolox-api
+    version: v1
+spec:
+  replicas: 3  # Horizontal scaling
+  selector:
+    matchLabels:
+      app: yolox-api
+  template:
+    metadata:
+      labels:
+        app: yolox-api
+        version: v1
+    spec:
+      containers:
+      - name: yolox-api
+        image: yolox-api:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: API_HOST
+          value: "0.0.0.0"
+        - name: API_PORT
+          value: "8000"
+        - name: DEVICE
+          value: "cpu"  # Use "cuda" for GPU nodes
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: API_WORKERS
+          value: "4"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+            # nvidia.com/gpu: 1  # Uncomment for GPU support
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/v1/ready
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: models
+          mountPath: /app/models
+          readOnly: true
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: yolox-models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: yolox-api-service
+  labels:
+    app: yolox-api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: yolox-api
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: yolox-models-pvc
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: standard

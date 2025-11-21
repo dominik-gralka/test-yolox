@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: yolox-api-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"  # For HTTPS
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: yolox-api.example.com  # Change to your domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: yolox-api-service
+            port:
+              number: 80
+  # tls:  # Uncomment for HTTPS
+  # - hosts:
+  #   - yolox-api.example.com
+  #   secretName: yolox-api-tls
