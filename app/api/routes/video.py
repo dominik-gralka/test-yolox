@@ -83,10 +83,9 @@ async def detect_objects_in_video(
     """
     settings = get_settings()
 
-    # Validate file type
-    if not file.content_type or not file.content_type.startswith("video/"):
-        # Also accept application/octet-stream as it's common for video uploads
-        if file.content_type != "application/octet-stream":
+    # Validate file type (allow None for clients that don't set content_type)
+    if file.content_type:
+        if not file.content_type.startswith("video/") and file.content_type != "application/octet-stream":
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid file type. Expected video, got {file.content_type}"

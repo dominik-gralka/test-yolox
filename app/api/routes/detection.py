@@ -49,8 +49,8 @@ async def detect_objects(
     """
     settings = get_settings()
 
-    # Validate file type
-    if not file.content_type or not file.content_type.startswith("image/"):
+    # Validate file type (allow None for clients that don't set content_type)
+    if file.content_type and not file.content_type.startswith("image/"):
         raise HTTPException(
             status_code=400,
             detail=f"Invalid file type. Expected image, got {file.content_type}"
