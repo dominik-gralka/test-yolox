@@ -33,8 +33,13 @@ source venv/bin/activate  # Linux/Mac
 # oder
 venv\Scripts\activate  # Windows
 
-# Dependencies installieren
-pip install -r requirements.txt
+# Dependencies installieren (empfohlene Methode)
+./install.sh
+
+# Oder manuell in zwei Schritten:
+# pip install -r requirements-base.txt  # PyTorch zuerst
+# pip install -r requirements.txt       # Rest der Dependencies
+# pip install git+https://github.com/Megvii-BaseDetection/YOLOX.git  # YOLOX
 
 # Umgebungsvariablen konfigurieren
 cp .env.example .env
@@ -43,6 +48,7 @@ cp .env.example .env
 # Model Weights herunterladen
 # Legen Sie Ihre YOLOX-Modellgewichte in den Ordner models/
 # z.B. models/yolox_s.pth
+# Siehe YOLOX_SETUP.md für Details
 ```
 
 ### Docker Installation (Empfohlen)
