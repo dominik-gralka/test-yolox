@@ -1,8 +1,8 @@
 # Multi-stage Dockerfile for YOLOX API
-# Stage 1: Base image with dependencies
-FROM python:3.10-slim as base
+# Stage 1: Builder image with build dependencies
+FROM python:3.10-slim as builder
 
-# Install system dependencies
+# Install system dependencies including build tools
 RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     libsm6 \
@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     libgl1 \
     git \
+    cmake \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -24,10 +26,29 @@ RUN pip install --no-cache-dir -r requirements-base.txt
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Step 3: Install YOLOX (requires torch to be already installed)
+# Step 3: Install YOLOX (requires torch to be already installed and cmake for onnx-simplifier)
 RUN pip install --no-cache-dir git+https://github.com/Megvii-BaseDetection/YOLOX.git
 
-# Stage 2: Production image
+# Stage 2: Base runtime image (without build tools)
+FROM python:3.10-slim as base
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Stage 3: Production image
 FROM base as production
 
 # Copy application code
