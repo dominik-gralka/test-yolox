@@ -39,7 +39,8 @@ async def lifespan(app: FastAPI):
         model_manager = get_model_manager()
         model_manager.load_model(
             model_path=settings.model_path,
-            device=settings.device
+            device=settings.device,
+            model_name=settings.model_name
         )
         logger.info("✓ Model loaded successfully")
     except Exception as e:

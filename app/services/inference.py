@@ -5,8 +5,6 @@ import torch
 import time
 from typing import List, Tuple
 from loguru import logger
-from PIL import Image
-import io
 
 from app.schemas.detection import Detection, BoundingBox
 from app.core.model_manager import get_model_manager
@@ -41,13 +39,13 @@ class YOLOXInferenceService:
     def preprocess_image(
         self,
         image_bytes: bytes,
-        input_size: int = 640
+        input_size: Tuple[int, int] = (640, 640)
     ) -> Tuple[torch.Tensor, dict]:
-        """Preprocess image for YOLOX inference
+        """Preprocess image for YOLOX inference using YOLOX's preprocessing
 
         Args:
             image_bytes: Raw image bytes
-            input_size: Target input size
+            input_size: Target input size (height, width)
 
         Returns:
             Preprocessed tensor and original image info
@@ -66,26 +64,38 @@ class YOLOXInferenceService:
             "height": original_height
         }
 
-        # Resize image while maintaining aspect ratio
-        ratio = min(input_size / original_width, input_size / original_height)
-        new_width = int(original_width * ratio)
-        new_height = int(original_height * ratio)
+        # Use YOLOX's preprocess function
+        try:
+            from yolox.data.data_augment import preproc
+            img, ratio = preproc(img, input_size, swap=(2, 0, 1))
 
-        img_resized = cv2.resize(img, (new_width, new_height))
+            # Convert to tensor
+            img_tensor = torch.from_numpy(img).unsqueeze(0).float()
 
-        # Pad to square
-        padded_img = np.ones((input_size, input_size, 3), dtype=np.uint8) * 114
-        padded_img[:new_height, :new_width] = img_resized
+            image_info["ratio"] = ratio
 
-        # Convert to RGB and normalize
-        padded_img = cv2.cvtColor(padded_img, cv2.COLOR_BGR2RGB)
-        img_tensor = torch.from_numpy(padded_img).float()
-        img_tensor = img_tensor.permute(2, 0, 1).unsqueeze(0)  # HWC to NCHW
+        except ImportError:
+            # Fallback to manual preprocessing if YOLOX not available
+            logger.warning("YOLOX preproc not available, using manual preprocessing")
 
-        # Normalize
-        img_tensor /= 255.0
+            # Resize while maintaining aspect ratio
+            ratio = min(input_size[0] / original_height, input_size[1] / original_width)
+            new_height = int(original_height * ratio)
+            new_width = int(original_width * ratio)
 
-        image_info["ratio"] = ratio
+            img_resized = cv2.resize(img, (new_width, new_height))
+
+            # Pad to target size
+            padded_img = np.ones((input_size[0], input_size[1], 3), dtype=np.uint8) * 114
+            padded_img[:new_height, :new_width] = img_resized
+
+            # Convert BGR to RGB and normalize
+            padded_img = cv2.cvtColor(padded_img, cv2.COLOR_BGR2RGB)
+            img_tensor = torch.from_numpy(padded_img).float()
+            img_tensor = img_tensor.permute(2, 0, 1).unsqueeze(0)  # HWC to NCHW
+            img_tensor /= 255.0
+
+            image_info["ratio"] = ratio
 
         return img_tensor, image_info
 
@@ -94,33 +104,132 @@ class YOLOXInferenceService:
         outputs: torch.Tensor,
         image_info: dict,
         confidence_threshold: float = 0.3,
-        nms_threshold: float = 0.45
+        nms_threshold: float = 0.45,
+        num_classes: int = 80
     ) -> List[Detection]:
-        """Postprocess model outputs to detections
+        """Postprocess YOLOX model outputs to detections
 
         Args:
-            outputs: Raw model outputs
+            outputs: Raw model outputs [batch, num_boxes, 5+num_classes]
             image_info: Information about original image
             confidence_threshold: Confidence threshold
             nms_threshold: NMS threshold
+            num_classes: Number of classes
 
         Returns:
             List of Detection objects
         """
-        # This is a placeholder implementation
-        # In production, this would process actual YOLOX outputs
-        # The real implementation would include:
-        # 1. Decode predictions
-        # 2. Apply NMS
-        # 3. Scale boxes back to original image size
-        # 4. Create Detection objects
-
         detections = []
 
-        # Placeholder: Return empty detections
-        # Real implementation would process outputs tensor
-        logger.debug(f"Processing predictions with conf={confidence_threshold}, nms={nms_threshold}")
+        if outputs is None or outputs.shape[0] == 0:
+            return detections
 
+        # outputs shape: [batch, num_boxes, 5+num_classes]
+        # where 5 = [x, y, w, h, obj_conf]
+
+        try:
+            from yolox.utils import postprocess
+
+            # Apply postprocessing (NMS, etc.)
+            output = postprocess(
+                outputs,
+                num_classes=num_classes,
+                conf_thre=confidence_threshold,
+                nms_thre=nms_threshold
+            )
+
+            if output[0] is None:
+                return detections
+
+            # output[0] shape: [num_detections, 7]
+            # where 7 = [x1, y1, x2, y2, obj_conf, class_conf, class_id]
+            predictions = output[0].cpu().numpy()
+
+            # Scale boxes back to original image size
+            ratio = image_info.get("ratio", 1.0)
+
+            for pred in predictions:
+                x1, y1, x2, y2, obj_conf, class_conf, class_id = pred
+
+                # Scale coordinates back to original image
+                x1 /= ratio
+                y1 /= ratio
+                x2 /= ratio
+                y2 /= ratio
+
+                # Get class name
+                class_id = int(class_id)
+                class_name = COCO_CLASSES[class_id] if class_id < len(COCO_CLASSES) else f"class_{class_id}"
+
+                # Create detection object
+                detection = Detection(
+                    class_id=class_id,
+                    class_name=class_name,
+                    confidence=float(class_conf),
+                    bbox=BoundingBox(
+                        x1=float(x1),
+                        y1=float(y1),
+                        x2=float(x2),
+                        y2=float(y2)
+                    )
+                )
+                detections.append(detection)
+
+        except ImportError:
+            logger.error("YOLOX postprocess not available")
+            # Fallback: basic processing without NMS
+            if len(outputs.shape) == 3:
+                predictions = outputs[0]  # Get first batch
+            else:
+                predictions = outputs
+
+            # Filter by confidence
+            obj_conf = predictions[:, 4]
+            mask = obj_conf > confidence_threshold
+            predictions = predictions[mask]
+
+            if predictions.shape[0] > 0:
+                # Get class predictions
+                class_conf, class_pred = torch.max(predictions[:, 5:], dim=1)
+
+                # Combined confidence
+                final_conf = obj_conf[mask] * class_conf
+
+                # Filter by final confidence
+                mask2 = final_conf > confidence_threshold
+                predictions = predictions[mask2]
+                class_pred = class_pred[mask2]
+                final_conf = final_conf[mask2]
+
+                ratio = image_info.get("ratio", 1.0)
+
+                for i in range(predictions.shape[0]):
+                    pred = predictions[i]
+                    x_center, y_center, width, height = pred[:4]
+
+                    # Convert from center format to corner format
+                    x1 = (x_center - width / 2) / ratio
+                    y1 = (y_center - height / 2) / ratio
+                    x2 = (x_center + width / 2) / ratio
+                    y2 = (y_center + height / 2) / ratio
+
+                    class_id = int(class_pred[i])
+                    class_name = COCO_CLASSES[class_id] if class_id < len(COCO_CLASSES) else f"class_{class_id}"
+
+                    detection = Detection(
+                        class_id=class_id,
+                        class_name=class_name,
+                        confidence=float(final_conf[i]),
+                        bbox=BoundingBox(
+                            x1=float(x1),
+                            y1=float(y1),
+                            x2=float(x2),
+                            y2=float(y2)
+                        )
+                    )
+                    detections.append(detection)
+
+        logger.debug(f"Postprocessing complete: {len(detections)} detections")
         return detections
 
     async def detect_objects(
@@ -144,31 +253,32 @@ class YOLOXInferenceService:
         start_time = time.time()
 
         try:
+            # Get model and experiment
+            model = self.model_manager.get_model()
+            device = self.model_manager.get_device()
+            exp = self.model_manager.get_exp()
+
+            # Use experiment's test size if available
+            test_size = getattr(exp, 'test_size', (input_size, input_size))
+            num_classes = getattr(exp, 'num_classes', 80)
+
             # Preprocess image
-            img_tensor, image_info = self.preprocess_image(image_bytes, input_size)
+            img_tensor, image_info = self.preprocess_image(image_bytes, test_size)
 
             # Move to device
-            device = self.model_manager.get_device()
             img_tensor = img_tensor.to(device)
 
             # Run inference
-            model = self.model_manager.get_model()
-
-            # Placeholder inference
-            # In production, this would be:
-            # with torch.no_grad():
-            #     outputs = model(img_tensor)
-
-            # For now, create dummy outputs
             with torch.no_grad():
-                outputs = torch.randn(1, 100, 85).to(device)  # Placeholder
+                outputs = model(img_tensor)
 
             # Postprocess
             detections = self.postprocess_predictions(
                 outputs,
                 image_info,
                 confidence_threshold,
-                nms_threshold
+                nms_threshold,
+                num_classes
             )
 
             # Calculate inference time
@@ -183,6 +293,7 @@ class YOLOXInferenceService:
 
         except Exception as e:
             logger.error(f"Inference failed: {e}")
+            logger.exception("Full traceback:")
             raise
 
 
